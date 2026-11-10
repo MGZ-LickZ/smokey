@@ -1,124 +1,126 @@
-
+import requests
+import json
+import time
+import sys
 import random
+import threading
+from datetime import datetime
 
+class=class="str">"cmt"># Configuration
+BASE_URL = class="str">"https:class="cmtclass="str">">//smokey.lichess.org"  # Assuming based on repo name, adjust if different
+API_KEY = class="str">"YOUR_LICHESSES_API_KEY_HERE"  class=class="str">"cmt"># Replace with your Lichess API key
+WEBHOOK_URL = class="str">"YOUR_DISCORD_WEBHOOK_URL_HERE"  class=class="str">"cmt"># Replace with your Discord webhook URL
+GAME_DELAY_MIN = class="num">2  class=class="str">"cmt"># Seconds between games
+GAME_DELAY_MAX = class="num">5  class=class="str">"cmt"># Seconds between games
 
-class BlackjackGame:
+def get_headers():
+    return {
+        class="str">"Authorization": fclass="str">"Bearer {API_KEY}",
+        class="str">"Content-Type": class="str">"application/json"
+    }
 
-    def __init__(self, user_id="Player"):
-        self.user_id = user_id
-        self.deck = []
-        self.player_hand = []
-        self.dealer_hand = []
-        self.game_over = False
-        self.winner = None
+def get_current_game():
+    class="str">""class="str">"Fetches the userclass="str">'s ongoing game if any."class="str">""
+    try:
+        response = requests.get(fclass="str">"{BASE_URL}/api/stream", headers=get_headers(), stream=True)
+        if response.status_code == class="num">200:
+            for line in response.iter_lines():
+                if line:
+                    data = json.loads(line)
+                    if 'gameclass="str">' in data and 'idclass="str">' in data['gameclass="str">']:
+                        return data['gameclass="str">']
+    except Exception as e:
+        print(fclass="str">"[ERROR] Failed to fetch current game: {e}")
+    return None
 
-    def create_deck(self):
-        suits = ["Hearts", "Diamonds", "Clubs", "Spades"]
-        ranks = [
-            "2", "3", "4", "5", "6", "7",
-            "8", "9", "10", "J", "Q", "K", "A"
-        ]
+def play_turn(game_id):
+    class="str">""class="str">"Simulates playing a turn by making random moves."class="str">""
+    try:
+        class=class="str">"cmt"># Fetch game state
+        game_url = fclass="str">"{BASE_URL}/api/bot/game/{game_id}"
+        response = requests.get(game_url, headers=get_headers())
+        if response.status_code != class="num">200:
+            print(fclass="str">"[WARN] Could not fetch game state for {game_id}. Status: {response.status_code}")
+            return False
 
-        self.deck = []
+        game_data = response.json()
+        
+        class=class="str">"cmt"># Check if it's our turn
+        if game_data.get(class="str">'turnColor') != class="str">'white':  class=class="str">"cmt"># Adjust if your bot is black
+            return True class=class="str">"cmt"># Not our turn, just continue
 
-        for suit in suits:
-            for rank in ranks:
-                value = 10 if rank in ["J", "Q", "K"] else (
-                    11 if rank == "A" else int(rank)
-                )
+        class=class="str">"cmt"># Make a random move
+        legal_moves = game_data.get(class="str">'moves', class="str">'').split()
+        if not legal_moves:
+            class=class="str">"cmt"># No moves left, game might be over
+            return False
 
-                self.deck.append({
-                    "rank": rank,
-                    "suit": suit,
-                    "value": value
-                })
-
-        random.shuffle(self.deck)
-
-    def calculate_score(self, hand):
-        score = sum(card["value"] for card in hand)
-        aces = sum(card["rank"] == "A" for card in hand)
-
-        while score > 21 and aces:
-            score -= 10
-            aces -= 1
-
-        return score
-
-    def deal_cards(self):
-        self.create_deck()
-
-        self.player_hand = [self.deck.pop(), self.deck.pop()]
-        self.dealer_hand = [self.deck.pop(), self.deck.pop()]
-
-        self.game_over = False
-        self.winner = None
-
-        if self.calculate_score(self.player_hand) == 21:
-            self.stand()
-
-        return self.get_status()
-
-    def hit(self):
-        if self.game_over:
-            return self.get_status()
-
-        self.player_hand.append(self.deck.pop())
-
-        if self.calculate_score(self.player_hand) > 21:
-            self.game_over = True
-            self.winner = "Dealer"
-
-        return self.get_status()
-
-    def stand(self):
-        if self.game_over:
-            return self.get_status()
-
-        while self.calculate_score(self.dealer_hand) < 17:
-            self.dealer_hand.append(self.deck.pop())
-
-        player_score = self.calculate_score(self.player_hand)
-        dealer_score = self.calculate_score(self.dealer_hand)
-
-        if dealer_score > 21 or player_score > dealer_score:
-            self.winner = "Player"
-        elif player_score < dealer_score:
-            self.winner = "Dealer"
+        move = random.choice(legal_moves)
+        
+        class=class="str">"cmt"># Send move
+        move_url = fclass="str">"{BASE_URL}/api/bot/game/{game_id}/move/{move}"
+        response = requests.post(move_url, headers=get_headers())
+        
+        if response.status_code == class="num">200:
+            print(fclass="str">"[INFO] Played move: {move}")
+            return True
         else:
-            self.winner = "Tie"
+            print(fclass="str">"[ERROR] Failed to play move {move}: {response.text}")
+            return False
+            
+    except Exception as e:
+        print(fclass="str">"[ERROR] Error during turn: {e}")
+        return False
 
-        self.game_over = True
+def notify_discord(message):
+    class="str">""class="str">"Sends a message to a Discord webhook."class="str">""
+    try:
+        payload = {class="str">"content": message}
+        requests.post(WEBHOOK_URL, json=payload)
+    except Exception as e:
+        print(fclass="str">"[WARN] Failed to send Discord notification: {e}")
 
-        return self.get_status()
+def run_bot():
+    class="str">""class="str">"Main loop for the bot."class="str">""
+    print(class="str">"[INFO] Bot started. Waiting for games...")
+    
+    while True:
+        try:
+            game = get_current_game()
+            
+            if game:
+                game_id = game[class="str">'id']
+                print(fclass="str">"[INFO] Found game: {game_id}")
+                
+                class=class="str">"cmt"># Play until game ends
+                while True:
+                    if not play_turn(game_id):
+                        break
+                    
+                    delay = random.uniform(GAME_DELAY_MIN, GAME_DELAY_MAX)
+                    time.sleep(delay)
+                
+                class=class="str">"cmt"># Game finished
+                notify_discord(fclass="str">"Game {game_id} finished.")
+                print(fclass="str">"[INFO] Game {game_id} finished.")
+                
+            else:
+                time.sleep(class="num">5) class=class="str">"cmt"># Wait if no active game
+                
+        except KeyboardInterrupt:
+            print(class="str">"\n[INFO] Bot stopped by user.")
+            break
+        except Exception as e:
+            print(fclass="str">"[ERROR] Unexpected error in main loop: {e}")
+            time.sleep(class="num">10)
 
-    def format_hand(self, hand):
-        return ", ".join(
-            f'{card["rank"]} of {card["suit"]}'
-            for card in hand
-        )
-
-    def get_status(self):
-        player_score = self.calculate_score(self.player_hand)
-
-        if not self.game_over:
-            dealer_showing = self.dealer_hand[0]
-
-            return (
-                f"Player: {self.format_hand(self.player_hand)}\n"
-                f"Player score: {player_score}\n"
-                f"Dealer showing: {dealer_showing['rank']} "
-                f"of {dealer_showing['suit']}\n"
-                "Choose Hit or Stand."
-            )
-
-        dealer_score = self.calculate_score(self.dealer_hand)
-
-        return (
-            "BLACKJACK GAME OVER\n"
-            f"Player hand: {self.format_hand(self.player_hand)}\n"
-            f"Player score: {player_score}\n"
-            f"Dealer hand: {self.format_hand(self.dealer_hand)}\n"
-            f"Dealer score: {dealer_score}\n"
-            f"Winner: {self.winner}"
-        )
+if __name__ == class="str">"__main__":
+    class=class="str">"cmt"># Validate configuration
+    if API_KEY == class="str">"YOUR_LICHESSES_API_KEY_HERE":
+        print(class="str">"[FATAL] Please set your Lichess API key in the script.")
+        sys.exit(class="num">1)
+        
+    if WEBHOOK_URL == class="str">"YOUR_DISCORD_WEBHOOK_URL_HERE":
+        print(class="str">"[WARN] Discord webhook URL not set. Notifications will be skipped.")
+    
+    run_bot()
